@@ -1113,5 +1113,22 @@ async def main():
     results = await system.process_treatment(treatment_id, input_files)
     print(json.dumps(results, indent=2))
 
+def run_main():
+    """Wrapper function to handle event loop properly"""
+    try:
+        # Get the current event loop or create a new one
+        loop = asyncio.get_event_loop()
+    except RuntimeError:
+        # If no event loop exists, create a new one
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+    
+    try:
+        # Run the main async function
+        loop.run_until_complete(main())
+    finally:
+        # Clean up
+        loop.close()
+
 if __name__ == "__main__":
-    asyncio.run(main())
+    run_main()
