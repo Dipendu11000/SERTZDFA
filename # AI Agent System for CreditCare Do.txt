@@ -1,0 +1,196 @@
+# AI Agent System for CreditCare Domain using AWS Strands SDK and Bedrock
+
+import os
+import logging
+import boto3
+from strands import Agent, Tool, Task, Context, LLM, Document
+from strands.integrations.bedrock import BedrockModel
+from typing import List, Dict, Any
+import json
+
+### ===== AWS BEDROCK INTEGRATION ===== ###
+
+# Set up AWS session manually
+session = boto3.Session(
+    aws_access_key_id='ASIAUFJ05VRONEJHNEP7',
+    aws_secret_access_key='5FNHUatrDaqx97YKRAVPZ0a2gFgCUW3217RFN9MV',
+    aws_session_token='IQ0Jb3JpZ2lux2VjEMn//////////wEaCXVZLWVhc3QtMSJGMEQCIG1TUFYEK5bxNkvX036wTbnjAEJCXOUF1v2X450pBfJYAIA14t61Qitsis4jN1SBPIWNIWZ6NHn6',
+    region_name='us-west-2'
+)
+
+# Initialize Bedrock model
+bedrock_model = BedrockModel(
+    model_id="anthropic.claude-3-5-sonnet-20241022-v2:0",
+    boto_session=session
+)
+
+# Set debug logging
+logging.getLogger("strands").setLevel(logging.DEBUG)
+logging.basicConfig(
+    format="%(levelname)s | %(name)s | %(message)s",
+    handlers=[logging.StreamHandler()]
+)
+
+### ===== Tooling Layer ===== ###
+
+class LocalFileTool(Tool):
+    def run(self, path: str) -> str:
+        try:
+            with open(path, 'r', encoding='utf-8') as file:
+                return file.read()
+        except Exception as e:
+            return f"[Error reading {path}]: {str(e)}"
+
+class ParsePDFTool(Tool):
+    def run(self, pdf_path: str) -> str:
+        return f"[Parsed PDF content from {pdf_path}]"  # Replace with actual parser like PyMuPDF or pdfminer
+
+class EmailTool(Tool):
+    def run(self, email_data: Dict[str, str]) -> str:
+        print(f"Email sent to {email_data['to']} with subject: {email_data['subject']}")
+        return "Email delivery initiated."
+
+### ===== Agent Layer ===== ###
+
+class ResearchAgent(Agent):
+    def __init__(self):
+        super().__init__()
+        self.read_html = LocalFileTool()
+        self.read_pdf = ParsePDFTool()
+
+    def run(self, context: Context) -> Context:
+        paths = context.input.get("local_paths", [])
+        raw_data = []
+        for path in paths:
+            if path.endswith(".pdf"):
+                content = self.read_pdf.run(path)
+            else:
+                content = self.read_html.run(path)
+            raw_data.append({"path": path, "content": content})
+        context.output["unstructured_data"] = raw_data
+        return context
+
+class DocumentingAgent(Agent):
+    def __init__(self):
+        super().__init__()
+        self.llm = bedrock_model
+
+    def run(self, context: Context) -> Context:
+        raw_data = context.input["unstructured_data"]
+        treatment_prompt = f"""
+        Given the following treatment content:
+        {json.dumps(raw_data, indent=2)}
+
+        Please:
+        1. Merge and deduplicate insights by treatment ID.
+        2. Structure the output in JSON format with fields:
+           - treatment_id
+           - source_path
+           - summarized_insight
+           - tags
+        3. Return a full structured JSON document.
+        """
+        structured_output = self.llm.prompt(treatment_prompt)
+        context.output["structured_treatment_document"] = structured_output
+        return context
+
+class RiskAssessmentAgent(Agent):
+    def __init__(self):
+        super().__init__()
+        self.llm = bedrock_model
+
+    def run(self, context: Context) -> Context:
+        treatment_doc = context.input["structured_treatment_document"]
+        risk_prompt = f"""
+        Analyze the following structured treatment data for potential clinical, financial, or operational risks:
+        {treatment_doc}
+
+        Provide:
+        - treatment_id
+        - risk_summary
+        - risk_score (0-10)
+        """
+        risk_report = self.llm.prompt(risk_prompt)
+        context.output["risk_report"] = risk_report
+        return context
+
+class RevenueAgent(Agent):
+    def __init__(self):
+        super().__init__()
+        self.llm = bedrock_model
+
+    def run(self, context: Context) -> Context:
+        treatment_doc = context.input["structured_treatment_document"]
+        risk_doc = context.input["risk_report"]
+        revenue_prompt = f"""
+        Using the treatment data and risks below:
+        Treatment Data:
+        {treatment_doc}
+        Risk Report:
+        {risk_doc}
+
+        Identify revenue opportunities:
+        - treatment_id
+        - opportunity_type (new customer / existing upsell)
+        - revenue_potential_score (1-5)
+        - justification
+        """
+        revenue_output = self.llm.prompt(revenue_prompt)
+        context.output["revenue_report"] = revenue_output
+        return context
+
+class EmailingAgent(Agent):
+    def __init__(self):
+        super().__init__()
+        self.email_tool = EmailTool()
+
+    def run(self, context: Context) -> Context:
+        summary_email = f"""
+        Subject: CreditCare AI Treatment Insights Report
+
+        Treatment Summary:
+        {context.input['structured_treatment_document']}
+
+        Risks:
+        {context.input['risk_report']}
+
+        Revenue Opportunities:
+        {context.input['revenue_report']}
+        """
+        self.email_tool.run({
+            "to": "business.user@creditcare.com",
+            "subject": "Treatment Intelligence Report",
+            "body": summary_email
+        })
+        context.output["email_status"] = "Delivered"
+        return context
+
+### ===== Pipeline Orchestration ===== ###
+
+def run_creditcare_pipeline(paths: List[str]) -> Dict[str, Any]:
+    ctx = Context()
+    ctx.input["local_paths"] = paths
+
+    agents = [
+        ResearchAgent(),
+        DocumentingAgent(),
+        RiskAssessmentAgent(),
+        RevenueAgent(),
+        EmailingAgent()
+    ]
+
+    for agent in agents:
+        ctx = agent.run(ctx)
+
+    return ctx.output
+
+### ===== Local Test Execution ===== ###
+
+if __name__ == "__main__":
+    example_paths = [
+        "data/government_portal1.html",
+        "data/superspecialist_summary.pdf",
+        "data/notes.txt"
+    ]
+    final_output = run_creditcare_pipeline(example_paths)
+    print(json.dumps(final_output, indent=2))
