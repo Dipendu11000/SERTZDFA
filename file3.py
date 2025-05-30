@@ -56,9 +56,9 @@ class HealthcareAgentSystem:
     def __init__(self):
         # Initialize AWS Bedrock session
         self.session = boto3.Session(
-            aws_access_key_id='ASIAUFJ05VRONE JHNEP7',
-            aws_secret_access_key='5FNHUatrDaqx97YKRAVPZ0a2gFgCUW3217RFN9MV',
-            aws_session_token='IQ0Jb3JpZ2lux2VjEMn//////////wEaCXVZLWVhc3QtMSJGMEQCIG1TUFYEK5bxNkvX036wTbnjAEJCXOUF 1v2X450pBfJYAIA14t61Qitsis4jN1SBPIWNIWZ6NHn6',
+            aws_access_key_id='ASIAEP7',
+            aws_secret_access_key='5FNHUat17RFN9MV',
+            aws_session_token='IQ0Jb3JpZ2lux21Qitsis4jN1SBPIWNIWZ6NHn6',
             region_name='us-west-2'
         )
         
